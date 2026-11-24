@@ -46,7 +46,7 @@ function Ensure-PinnedRepository {
         Write-Host "Cloning $($RepositoryLock.name) at its locked revision..."
         $clone = & git clone --no-checkout $RepositoryLock.url $path 2>&1
         if ($LASTEXITCODE -ne 0) { throw "Could not clone $($RepositoryLock.name): $($clone -join ' ')" }
-        $null = Invoke-Git $path @('fetch', '--depth', '1', 'origin', $RepositoryLock.ref)
+        $null = Invoke-Git $path @('fetch', 'origin', $RepositoryLock.ref)
         $null = Invoke-Git $path @('checkout', '--detach', $RepositoryLock.commit)
     }
     $top = (Invoke-Git $path @('rev-parse', '--show-toplevel') | Select-Object -Last 1).Trim()
