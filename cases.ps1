@@ -3,7 +3,9 @@ param(
     [ValidateSet('setup', 'start', 'start-models', 'start-backend', 'start-gui', 'install-dashboard', 'status', 'stop')]
     [string]$Action = 'start',
     [string]$ProjectRoot = 'D:\projects',
-    [string]$GodotPath = 'D:\tools\Godot-4.7.2\Godot_v4.7.2-stable_win64.exe'
+    [string]$GodotPath = 'D:\tools\Godot-4.7.2\Godot_v4.7.2-stable_win64.exe',
+    [ValidateRange(1, 65535)]
+    [int]$BackendPort = 18082
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -22,7 +24,7 @@ if ($env:LOCALAPPDATA) {
 $script:BridgeState = Join-Path $script:StateRoot 'codex-bridge.json'
 $script:GUIState = Join-Path $script:StateRoot 'godot-gui.json'
 $script:DashboardUrl = 'http://127.0.0.1:8765'
-$script:BackendUrl = 'http://127.0.0.1:18081'
+$script:BackendUrl = "http://127.0.0.1:$BackendPort"
 
 function Invoke-Git {
     param([string]$Repository, [string[]]$GitArguments)
@@ -128,12 +130,21 @@ function Initialize-PrivateConfiguration {
     Set-EnvValue $gatewayEnv 'GATEWAY_ADMIN_TOKEN' $adminToken
     Set-EnvValue $gatewayEnv 'BRIDGE_TOKEN' $bridgeToken
     if (-not (Get-EnvValue $gatewayEnv 'LUNA_BRIDGE_PORT')) { Set-EnvValue $gatewayEnv 'LUNA_BRIDGE_PORT' '18765' }
-    Set-EnvValue $gatewayEnv 'LUNA_ENABLED' 'false'
+    $adminPort = Get-EnvValue $gatewayEnv 'GATEWAY_ADMIN_HOST_PORT'
+    if ($adminPort -notmatch '^\d{1,5}$' -or [int]$adminPort -eq 18766) {
+        Set-EnvValue $gatewayEnv 'GATEWAY_ADMIN_HOST_PORT' '18768'
+    }
+    if (-not (Get-EnvValue $gatewayEnv 'LUNA_ENABLED')) { Set-EnvValue $gatewayEnv 'LUNA_ENABLED' 'false' }
+
+    Set-EnvValue $gatewayEnv 'GATEWAY_CONTAINER_NAME' 'cases-startup-gateway'
+    Set-EnvValue $gatewayEnv 'GATEWAY_ADMIN_CONTAINER_NAME' 'cases-startup-gateway-admin'
+    Set-EnvValue $gatewayEnv 'GATEWAY_NETWORK_ALIAS' 'cases-startup-gateway'
+    Set-EnvValue $gatewayEnv 'GATEWAY_UPSTREAM_URL' 'http://cases-startup-gateway:8080'
 
     $dbPassword = Get-EnvValue $backendEnv 'POSTGRES_PASSWORD'
     if (-not (Test-RealSecret $dbPassword)) { Set-EnvValue $backendEnv 'POSTGRES_PASSWORD' (New-RandomToken) }
-    Set-EnvValue $backendEnv 'API_HOST_PORT' '18081'
-    Set-EnvValue $backendEnv 'INFERENCE_GATEWAY_BASE_URL' 'http://ddu-gateway:8080'
+    Set-EnvValue $backendEnv 'API_HOST_PORT' "$BackendPort"
+    Set-EnvValue $backendEnv 'INFERENCE_GATEWAY_BASE_URL' 'http://cases-startup-gateway:8080'
     Set-EnvValue $backendEnv 'INFERENCE_GATEWAY_TOKEN' $clientToken
     Set-EnvValue $backendEnv 'LUNA_MODEL_ID' 'gpt-6-luna'
 }
@@ -148,8 +159,10 @@ function Setup-Project {
 }
 
 function Invoke-Compose {
-    param([string]$ComposeFile, [string]$EnvFile, [string[]]$ComposeArguments)
-    $arguments = @('compose', '--env-file', $EnvFile, '-f', $ComposeFile) + $ComposeArguments
+    param([string]$ComposeFile, [string]$EnvFile, [string[]]$ComposeArguments, [string]$ProjectName = '')
+    $arguments = @('compose')
+    if ($ProjectName) { $arguments += @('-p', $ProjectName) }
+    $arguments += @('--env-file', $EnvFile, '-f', $ComposeFile) + $ComposeArguments
     & docker @arguments
     if ($LASTEXITCODE -ne 0) { throw "Docker Compose failed for $ComposeFile." }
 }
@@ -236,8 +249,34 @@ function Start-LunaBridge {
 function Get-GatewayStatus {
     $gatewayEnv = Join-Path $script:AI 'deploy\inference-gateway\.env'
     $adminToken = Get-EnvValue $gatewayEnv 'GATEWAY_ADMIN_TOKEN'
-    try { return Invoke-RestMethod -Uri 'http://127.0.0.1:18766/admin/v1/providers' -Headers @{ Authorization = "Bearer $adminToken" } -TimeoutSec 4 }
+    $port = Get-EnvValue $gatewayEnv 'GATEWAY_ADMIN_HOST_PORT'
+    if ($port -notmatch '^\d{1,5}$' -or [int]$port -lt 1 -or [int]$port -gt 65535) { return $null }
+    try { return Invoke-RestMethod -Uri "http://127.0.0.1:$port/admin/v1/providers" -Headers @{ Authorization = "Bearer $adminToken" } -TimeoutSec 4 }
     catch { return $null }
+}
+
+function Ensure-GatewayAdminPort {
+    $gatewayEnv = Join-Path $script:AI 'deploy\inference-gateway\.env'
+    $portValue = Get-EnvValue $gatewayEnv 'GATEWAY_ADMIN_HOST_PORT'
+    $portValid = $portValue -match '^\d{1,5}$' -and [int]$portValue -ge 1 -and [int]$portValue -le 65535
+    if ($portValid) {
+        if (-not (Test-TcpPort ([int]$portValue))) { return }
+        $containerIds = & docker ps -q --filter 'name=^/cases-startup-gateway-admin$' 2>$null
+        if ($LASTEXITCODE -eq 0 -and $containerIds) {
+            $project = & docker inspect ($containerIds | Select-Object -First 1) --format '{{ index .Config.Labels "com.docker.compose.project" }}' 2>$null
+            if ($LASTEXITCODE -eq 0 -and ($project | Select-Object -Last 1).Trim() -eq 'cases-startup-inference-gateway' -and (Get-GatewayStatus)) {
+                return
+            }
+        }
+    }
+    for ($candidate = 18768; $candidate -le 18820; $candidate++) {
+        if (-not (Test-TcpPort $candidate)) {
+            Set-EnvValue $gatewayEnv 'GATEWAY_ADMIN_HOST_PORT' "$candidate"
+            Write-Host "Using loopback gateway admin port $candidate."
+            return
+        }
+    }
+    throw 'No free loopback admin port was found between 18768 and 18820. No listener was stopped.'
 }
 
 function Ensure-DockerNetwork {
@@ -256,7 +295,8 @@ function Start-Models {
     if ($LASTEXITCODE -ne 0) { throw 'Docker Desktop is not running for this Windows user.' }
     Ensure-DockerNetwork
     Start-LunaBridge
-    Invoke-Compose $gatewayCompose $gatewayEnv @('up', '-d', '--build', 'inference-gateway', 'admin-proxy')
+    Ensure-GatewayAdminPort
+    Invoke-Compose -ComposeFile $gatewayCompose -EnvFile $gatewayEnv -ComposeArguments @('up', '-d', '--build', 'inference-gateway', 'admin-proxy') -ProjectName 'cases-startup-inference-gateway'
     $luna = $null
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
         $status = Get-GatewayStatus
@@ -275,7 +315,7 @@ function Start-Backend {
     $null = & docker info --format '{{.ServerVersion}}' 2>$null
     if ($LASTEXITCODE -ne 0) { throw 'Docker Desktop is not running for this Windows user.' }
     Ensure-DockerNetwork
-    Invoke-Compose $backendCompose $backendEnv @('up', '-d', '--build')
+    Invoke-Compose -ComposeFile $backendCompose -EnvFile $backendEnv -ComposeArguments @('up', '-d', '--build') -ProjectName 'cases-startup-backend'
     $deadline = [DateTime]::UtcNow.AddSeconds(120)
     while ([DateTime]::UtcNow -lt $deadline) {
         try {
@@ -339,7 +379,13 @@ function Start-GUI {
         }
     }
     $guiProject = Join-Path $script:GUI 'godot'
-    $process = Start-Process -FilePath $GodotPath -ArgumentList @('--path', $guiProject) -WorkingDirectory $script:GUI -PassThru
+    $oldApiUrl = $env:CASES_API_BASE_URL
+    try {
+        $env:CASES_API_BASE_URL = $script:BackendUrl
+        $process = Start-Process -FilePath $GodotPath -ArgumentList @('--path', $guiProject) -WorkingDirectory $script:GUI -PassThru
+    } finally {
+        $env:CASES_API_BASE_URL = $oldApiUrl
+    }
     Save-ProcessRecord $script:GUIState $process $GodotPath $guiProject
     Write-Host "Cases-GUI opened in Godot (PID $($process.Id)); new sessions use ChatGPT 6 Luna."
 }
@@ -391,10 +437,10 @@ function Stop-Project {
     if ($guiRecord) { Stop-TrackedProcess $script:GUIState $guiRecord.commandPath $guiRecord.executablePath }
     $backendEnv = Join-Path $script:Backend 'deployment\backend\.env'
     $backendCompose = Join-Path $script:Backend 'deployment\backend\compose.yaml'
-    if ((Test-Path $backendCompose) -and (Test-Path $backendEnv)) { Invoke-Compose $backendCompose $backendEnv @('down') }
+    if ((Test-Path $backendCompose) -and (Test-Path $backendEnv)) { Invoke-Compose -ComposeFile $backendCompose -EnvFile $backendEnv -ComposeArguments @('down') -ProjectName 'cases-startup-backend' }
     $gatewayEnv = Join-Path $script:AI 'deploy\inference-gateway\.env'
     $gatewayCompose = Join-Path $script:AI 'deploy\inference-gateway\compose.yaml'
-    if ((Test-Path $gatewayCompose) -and (Test-Path $gatewayEnv)) { Invoke-Compose $gatewayCompose $gatewayEnv @('down') }
+    if ((Test-Path $gatewayCompose) -and (Test-Path $gatewayEnv)) { Invoke-Compose -ComposeFile $gatewayCompose -EnvFile $gatewayEnv -ComposeArguments @('down') -ProjectName 'cases-startup-inference-gateway' }
     $bridgeRecord = Get-ProcessRecord $script:BridgeState
     if ($bridgeRecord) { Stop-TrackedProcess $script:BridgeState $bridgeRecord.commandPath $bridgeRecord.executablePath }
     Write-Host 'Cases services stopped. PostgreSQL and gateway state volumes were preserved; no volume-removal flag was used.'
