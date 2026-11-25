@@ -1,23 +1,23 @@
 {
-    "lockVersion":  1,
-    "repositories":  [
-                         {
-                             "name":  "Cases-AI",
-                             "url":  "https://github.com/IdehistorieCases/Cases-AI.git",
-                             "ref":  "refs/heads/codex/luna-primary-startup",
-                             "commit":  "54a56551380b6ba23ce3bfa2a79b6fd6d27f11c3"
-                         },
-                         {
-                             "name":  "Cases-Backend",
-                             "url":  "https://github.com/IdehistorieCases/Cases-Backend.git",
-                             "ref":  "refs/heads/codex/cases-ai-canonical",
-                             "commit":  "2ff2c2f911d9726b6151595e7dd7841bf9388e05"
-                         },
-                         {
-                             "name":  "Cases-GUI",
-                             "url":  "https://github.com/IdehistorieCases/Cases-GUI.git",
-                             "ref":  "refs/heads/main",
-                             "commit":  "8542104c93ca8db6ddc580a1ade4e94fc842b265"
-                         }
-                     ]
+  "lockVersion": 1,
+  "repositories": [
+    {
+      "name": "Cases-AI",
+      "url": "https://github.com/IdehistorieCases/Cases-AI.git",
+      "ref": "refs/heads/codex/luna-primary-startup",
+      "commit": "54a56551380b6ba23ce3bfa2a79b6fd6d27f11c3"
+    },
+    {
+      "name": "Cases-Backend",
+      "url": "https://github.com/IdehistorieCases/Cases-Backend.git",
+      "ref": "refs/heads/codex/cases-ai-canonical",
+      "commit": "2ff2c2f911d9726b6151595e7dd7841bf9388e05"
+    },
+    {
+      "name": "Cases-GUI",
+      "url": "https://github.com/IdehistorieCases/Cases-GUI.git",
+      "ref": "refs/heads/main",
+      "commit": "8542104c93ca8db6ddc580a1ade4e94fc842b265"
+    }
+  ]
 }
