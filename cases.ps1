@@ -354,7 +354,7 @@ function Start-Backend {
 
 function Test-LunaNarratorReady {
     try {
-        $narrators = Invoke-RestMethod -Uri "$script:BackendUrl/api/v1/narrators" -TimeoutSec 5
+        $narrators = Invoke-RestMethod -Uri "$script:BackendUrl/api/v1/narrators" -TimeoutSec 20
         foreach ($narrator in @($narrators)) { if ($narrator.id -eq 'gpt6_luna_high') { return [bool]$narrator.ready } }
     } catch { }
     return $false
@@ -491,7 +491,7 @@ function Show-Status {
         $health = Invoke-RestMethod -Uri "$script:BackendUrl/healthz" -TimeoutSec 3
         $ready = Invoke-RestMethod -Uri "$script:BackendUrl/readyz" -TimeoutSec 3
         Write-Host "Cases-Backend: health=$($health.status), database=$($ready.status)"
-        $narrators = Invoke-RestMethod -Uri "$script:BackendUrl/api/v1/narrators" -TimeoutSec 5
+        $narrators = Invoke-RestMethod -Uri "$script:BackendUrl/api/v1/narrators" -TimeoutSec 20
         foreach ($narrator in @($narrators)) { Write-Host "Narrator $($narrator.id): ready=$($narrator.ready), default=$($narrator.default)" }
     } catch { Write-Host 'Cases-Backend: unavailable' }
     if (Test-Path -LiteralPath $GodotPath -PathType Leaf) { Write-Host "Godot: $GodotPath" }
