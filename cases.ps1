@@ -280,9 +280,16 @@ function Ensure-GatewayAdminPort {
         if (-not (Test-TcpPort ([int]$portValue))) { return }
         $containerIds = & docker ps -q --filter 'name=^/cases-startup-gateway-admin$' 2>$null
         if ($LASTEXITCODE -eq 0 -and $containerIds) {
-            $project = & docker inspect ($containerIds | Select-Object -First 1) --format '{{ index .Config.Labels "com.docker.compose.project" }}' 2>$null
-            if ($LASTEXITCODE -eq 0 -and ($project | Select-Object -Last 1).Trim() -eq 'cases-startup-inference-gateway' -and (Get-GatewayStatus)) {
-                return
+            $labelsJson = & docker inspect ($containerIds | Select-Object -First 1) --format '{{json .Config.Labels}}' 2>$null
+            if ($LASTEXITCODE -eq 0 -and $labelsJson) {
+                try {
+                    $labels = ($labelsJson | Select-Object -Last 1) | ConvertFrom-Json
+                    $project = $labels.'com.docker.compose.project'
+                }
+                catch { $project = $null }
+                if ($project -eq 'cases-startup-inference-gateway' -and (Get-GatewayStatus)) {
+                    return
+                }
             }
         }
     }
