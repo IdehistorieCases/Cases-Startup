@@ -5,7 +5,7 @@ Reproducible Windows startup for the CASES game. This repository pins matching C
 ## Prerequisites
 
 - Windows 11, Git, PowerShell 5.1 or newer, and Docker Desktop using Linux containers.
-- Python 3.11 or newer and the Codex CLI installed and signed in as the Windows user running CASES.
+- Python 3.11 or newer and the Codex CLI installed and signed in as the Windows user running CASES. For an npm installation, use `npm install -g @openai/codex`; the launcher also checks npm's global prefix if its command shim is not already on `PATH`.
 - Godot 4.7.2 at `D:\tools\Godot-4.7.2\Godot_v4.7.2-stable_win64.exe` (or pass `-GodotPath`).
 - For the Luna consent screen, install the Cases-AI dashboard once. Its installer requires Node.js 22.12+ and Python 3.11+.
 

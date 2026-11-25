@@ -222,7 +222,24 @@ function Start-LunaBridge {
         Write-Host "Using loopback bridge port $port because the configured port was occupied."
     }
     $python = Get-Command python -ErrorAction Stop
-    $null = Get-Command codex -ErrorAction Stop
+    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+    if (-not $codexCommand) {
+        $npmCommand = Get-Command npm -ErrorAction SilentlyContinue
+        if ($npmCommand) {
+            $npmPrefixOutput = & $npmCommand.Source prefix -g 2>$null
+            if ($LASTEXITCODE -eq 0 -and $npmPrefixOutput) {
+                $npmPrefix = [string]($npmPrefixOutput | Select-Object -Last 1)
+                $npmPrefix = $npmPrefix.Trim()
+                if ($npmPrefix -and (Test-Path -LiteralPath (Join-Path $npmPrefix 'codex.cmd'))) {
+                    $env:PATH = "$npmPrefix;$env:PATH"
+                    $codexCommand = Get-Command codex -ErrorAction SilentlyContinue
+                }
+            }
+        }
+    }
+    if (-not $codexCommand) {
+        throw "Codex CLI not found on PATH or in npm's global prefix. Install it with 'npm install -g @openai/codex' and sign in with ChatGPT."
+    }
     $logs = Join-Path $script:StateRoot 'logs'
     New-Item -ItemType Directory -Path $logs -Force | Out-Null
     $oldHost = $env:LOCALAI_CODEX_BRIDGE_HOST
