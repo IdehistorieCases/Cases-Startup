@@ -10,14 +10,14 @@
     {
       "name": "Cases-Backend",
       "url": "https://github.com/IdehistorieCases/Cases-Backend.git",
-      "ref": "refs/heads/codex/cases-ai-canonical",
-      "commit": "2ff2c2f911d9726b6151595e7dd7841bf9388e05"
+      "ref": "refs/heads/main",
+      "commit": "1c13dd323cd2183aaaf440239a1d6f63b8a3af25"
     },
     {
       "name": "Cases-GUI",
       "url": "https://github.com/IdehistorieCases/Cases-GUI.git",
       "ref": "refs/heads/main",
-      "commit": "9d78c32341bee9edf31340d4fee80acdac7bd20c"
+      "commit": "1f30a096c4d935b92d4074a6303d34155bb87879"
     }
   ]
 }
