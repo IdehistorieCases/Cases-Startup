@@ -141,7 +141,7 @@ class PreviewHandler(BaseHTTPRequestHandler):
             return
         body = self.rfile.read(length) if length else None
         headers: dict[str, str] = {}
-        for name in ("Accept", "Content-Type", "Authorization", "Idempotency-Key"):
+        for name in ("Accept", "Content-Type", "Authorization", "Idempotency-Key", "X-Session-Capability"):
             value = self.headers.get(name)
             if value:
                 headers[name] = value
