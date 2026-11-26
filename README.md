@@ -37,7 +37,7 @@ If Luna was enabled previously, startup proceeds after checking readiness. If th
 
 ## Choose branches and find stranded work
 
-Normal startup fetches `origin/main` for all three source repositories and fast-forwards clean checkouts before launching. New main-branch changes are therefore used on the next run. Dirty checkouts and local commits that are not on origin stop startup without being overwritten.
+Normal startup preflights all selected refs and worktrees, then fetches `origin/main` for all three source repositories and fast-forwards clean checkouts before launching. New main-branch changes are therefore used on the next run. Dirty checkouts and local commits that are not on origin stop startup without being overwritten.
 
 ~~~powershell
 .\cases.ps1 start -Branch main

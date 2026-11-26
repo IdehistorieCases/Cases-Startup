@@ -83,7 +83,7 @@ function Get-SelectedBranch {
 }
 
 function Ensure-BranchRepository {
-    param($RepositoryLock, [string]$Branch)
+    param($RepositoryLock, [string]$Branch, [switch]$Preflight)
     $path = Join-Path $script:ProjectRoot $RepositoryLock.name
     if (-not (Test-Path -LiteralPath (Join-Path $path '.git'))) {
         if (Test-Path -LiteralPath $path) {
@@ -117,6 +117,22 @@ function Ensure-BranchRepository {
     if ($hasRemoteBranch -and $hasLocalBranch) {
         $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/$Branch...$Branch") | Select-Object -Last 1).Trim() -split '\s+'
         if ([int]$counts[1] -gt 0) { throw "$($RepositoryLock.name) branch '$Branch' has local commits not on origin. Push or preserve them before startup can follow origin." }
+    }
+    if ($Preflight) {
+        if ($hasLocalBranch) {
+            $expectedPath = [System.IO.Path]::GetFullPath($path).TrimEnd('\')
+            $activePath = ''
+            foreach ($line in (Invoke-Git $path @('worktree', 'list', '--porcelain'))) {
+                if ($line.StartsWith('worktree ')) { $activePath = $line.Substring(9) }
+                elseif ($line -eq "branch refs/heads/$Branch" -and $activePath) {
+                    $actualPath = [System.IO.Path]::GetFullPath($activePath).TrimEnd('\')
+                    if (-not [string]::Equals($actualPath, $expectedPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                        throw "$($RepositoryLock.name) branch '$Branch' is already checked out in $actualPath. No repository branches were changed."
+                    }
+                }
+            }
+        }
+        return
     }
 
     if ($hasLocalBranch) {
@@ -232,8 +248,14 @@ function Setup-Project {
         Write-Host 'Using the exact revisions saved in repos.lock.json.'
     } else {
         foreach ($repositoryLock in $script:Lock.repositories) {
-            $selectedBranch = Get-SelectedBranch $repositoryLock
-            $script:SelectedBranches[$repositoryLock.name] = $selectedBranch
+            $script:SelectedBranches[$repositoryLock.name] = Get-SelectedBranch $repositoryLock
+        }
+        foreach ($repositoryLock in $script:Lock.repositories) {
+            $selectedBranch = $script:SelectedBranches[$repositoryLock.name]
+            Ensure-BranchRepository $repositoryLock $selectedBranch -Preflight
+        }
+        foreach ($repositoryLock in $script:Lock.repositories) {
+            $selectedBranch = $script:SelectedBranches[$repositoryLock.name]
             Ensure-BranchRepository $repositoryLock $selectedBranch
         }
     }
