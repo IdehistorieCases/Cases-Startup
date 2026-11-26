@@ -1,5 +1,6 @@
 {
   "lockVersion": 1,
+  "defaultBranch": "main",
   "repositories": [
     {
       "name": "Cases-AI",

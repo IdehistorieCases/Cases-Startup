@@ -1,11 +1,17 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('setup', 'start', 'start-models', 'start-backend', 'start-gui', 'install-dashboard', 'status', 'stop')]
+    [ValidateSet('setup', 'start', 'start-models', 'start-backend', 'start-gui', 'install-dashboard', 'status', 'branches', 'stop')]
     [string]$Action = 'start',
     [string]$ProjectRoot = 'D:\projects',
     [string]$GodotPath = 'D:\tools\Godot-4.7.2\Godot_v4.7.2-stable_win64.exe',
     [ValidateRange(1, 65535)]
-    [int]$BackendPort = 18082
+    [int]$BackendPort = 18082,
+    [Alias('Ref')]
+    [string]$Branch = '',
+    [string]$AIRef = '',
+    [string]$BackendRef = '',
+    [string]$GUIRef = '',
+    [switch]$Locked
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -13,6 +19,7 @@ Set-StrictMode -Version Latest
 $script:StartupRoot = $PSScriptRoot
 $script:ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $script:Lock = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'repos.lock.json') -Raw | ConvertFrom-Json
+$script:SelectedBranches = @{}
 $script:AI = Join-Path $script:ProjectRoot 'Cases-AI'
 $script:Backend = Join-Path $script:ProjectRoot 'Cases-Backend'
 $script:GUI = Join-Path $script:ProjectRoot 'Cases-GUI'
@@ -57,6 +64,74 @@ function Ensure-PinnedRepository {
     if ($head -ne $RepositoryLock.commit.ToLowerInvariant()) { throw "$($RepositoryLock.name) is at $head; Cases-Startup locks $($RepositoryLock.commit). No reset or checkout was performed." }
     $dirty = @(Invoke-Git $path @('status', '--porcelain', '--untracked-files=normal'))
     if ($dirty.Count -gt 0) { throw "$path has uncommitted or untracked files. Preserve them and use another -ProjectRoot for the pinned startup checkout." }
+}
+
+function Get-SelectedBranch {
+    param($RepositoryLock)
+    $selected = $script:Branch
+    switch ($RepositoryLock.name) {
+        'Cases-AI' { if ($script:AIRef) { $selected = $script:AIRef } }
+        'Cases-Backend' { if ($script:BackendRef) { $selected = $script:BackendRef } }
+        'Cases-GUI' { if ($script:GUIRef) { $selected = $script:GUIRef } }
+    }
+    if (-not $selected) { $selected = $script:Lock.defaultBranch }
+    $selected = $selected.Trim()
+    if ($selected.StartsWith('refs/heads/')) { $selected = $selected.Substring('refs/heads/'.Length) }
+    $valid = & git check-ref-format --branch $selected 2>$null
+    if ($LASTEXITCODE -ne 0) { throw "Invalid branch name '$selected' for $($RepositoryLock.name)." }
+    return $selected
+}
+
+function Ensure-BranchRepository {
+    param($RepositoryLock, [string]$Branch)
+    $path = Join-Path $script:ProjectRoot $RepositoryLock.name
+    if (-not (Test-Path -LiteralPath (Join-Path $path '.git'))) {
+        if (Test-Path -LiteralPath $path) {
+            $entries = @(Get-ChildItem -LiteralPath $path -Force -ErrorAction SilentlyContinue)
+            if ($entries.Count -gt 0) { throw "$path exists and is not a Git checkout. Choose another -ProjectRoot; existing files were left untouched." }
+        } else {
+            New-Item -ItemType Directory -Path $script:ProjectRoot -Force | Out-Null
+        }
+        Write-Host "Cloning $($RepositoryLock.name) for branch $Branch..."
+        $clone = & git clone --no-checkout $RepositoryLock.url $path 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Could not clone $($RepositoryLock.name): $($clone -join ' ')" }
+    }
+    $top = (Invoke-Git $path @('rev-parse', '--show-toplevel') | Select-Object -Last 1).Trim()
+    if ([System.IO.Path]::GetFullPath($top) -ne [System.IO.Path]::GetFullPath($path)) { throw "$path is not the expected repository root." }
+    $origin = (Invoke-Git $path @('remote', 'get-url', 'origin') | Select-Object -Last 1).Trim()
+    if (-not [string]::Equals($origin, $RepositoryLock.url, [System.StringComparison]::OrdinalIgnoreCase)) { throw "$path has an unexpected origin. It was left unchanged." }
+
+    $dirty = @(Invoke-Git $path @('status', '--porcelain', '--untracked-files=normal'))
+    if ($dirty.Count -gt 0) { throw "$path has local edits. They were preserved; commit them or use another -ProjectRoot before switching branches." }
+
+    $localRef = "refs/heads/$Branch"
+    $remoteRef = "refs/remotes/origin/$Branch"
+    $fetchSpec = '+refs/heads/{0}:{1}' -f $Branch, $remoteRef
+    $fetchOutput = & git -C $path fetch origin $fetchSpec 2>&1
+    $hasRemoteBranch = $LASTEXITCODE -eq 0
+    $null = & git -C $path show-ref --verify --quiet $localRef
+    $hasLocalBranch = $LASTEXITCODE -eq 0
+    if (-not $hasRemoteBranch -and -not $hasLocalBranch) {
+        throw "Branch '$Branch' does not exist locally or on origin for $($RepositoryLock.name). $($fetchOutput -join ' ')"
+    }
+    if ($hasRemoteBranch -and $hasLocalBranch) {
+        $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/$Branch...$Branch") | Select-Object -Last 1).Trim() -split '\s+'
+        if ([int]$counts[1] -gt 0) { throw "$($RepositoryLock.name) branch '$Branch' has local commits not on origin. Push or preserve them before startup can follow origin." }
+    }
+
+    if ($hasLocalBranch) {
+        $null = Invoke-Git $path @('switch', $Branch)
+    } else {
+        $null = Invoke-Git $path @('switch', '--track', '--create', $Branch, "origin/$Branch")
+    }
+    if ($hasRemoteBranch) {
+        $upstreamOption = "--set-upstream-to=origin/$Branch"
+        $null = Invoke-Git $path @('branch', $upstreamOption, $Branch)
+        $null = Invoke-Git $path @('merge', '--ff-only', "origin/$Branch")
+        Write-Host "$($RepositoryLock.name): following origin/$Branch at $((Invoke-Git $path @('rev-parse', '--short', 'HEAD') | Select-Object -Last 1).Trim())."
+    } else {
+        Write-Host "$($RepositoryLock.name): using local-only branch $Branch; origin has no matching branch to update from."
+    }
 }
 
 function Get-EnvValue {
@@ -151,10 +226,20 @@ function Initialize-PrivateConfiguration {
 
 function Setup-Project {
     New-Item -ItemType Directory -Path $script:ProjectRoot -Force | Out-Null
-    foreach ($repositoryLock in $script:Lock.repositories) { Ensure-PinnedRepository $repositoryLock }
+    if ($Locked) {
+        if ($Branch -or $AIRef -or $BackendRef -or $GUIRef) { throw 'Use either -Locked or branch selectors, not both.' }
+        foreach ($repositoryLock in $script:Lock.repositories) { Ensure-PinnedRepository $repositoryLock }
+        Write-Host 'Using the exact revisions saved in repos.lock.json.'
+    } else {
+        foreach ($repositoryLock in $script:Lock.repositories) {
+            $selectedBranch = Get-SelectedBranch $repositoryLock
+            $script:SelectedBranches[$repositoryLock.name] = $selectedBranch
+            Ensure-BranchRepository $repositoryLock $selectedBranch
+        }
+    }
     New-Item -ItemType Directory -Path $script:StateRoot -Force | Out-Null
     Initialize-PrivateConfiguration
-    Write-Host "Pinned source checkouts and private local configuration are ready under $script:ProjectRoot."
+    Write-Host "Source checkouts and private local configuration are ready under $script:ProjectRoot."
     Write-Host 'No containers were started and no model completion was sent.'
 }
 
@@ -475,7 +560,21 @@ function Show-Status {
         $path = Join-Path $script:ProjectRoot $item.name
         if (Test-Path -LiteralPath (Join-Path $path '.git')) {
             $head = (Invoke-Git $path @('rev-parse', '--short', 'HEAD') | Select-Object -Last 1).Trim()
-            Write-Host "$($item.name): $head (locked $($item.commit.Substring(0, 7)))"
+            $current = (Invoke-Git $path @('branch', '--show-current') | Select-Object -Last 1).Trim()
+            $dirty = @(Invoke-Git $path @('status', '--porcelain', '--untracked-files=normal')).Count
+            if ($Locked) {
+                Write-Host "$($item.name): branch=$current, commit=$head, dirty=$dirty, locked=$($item.commit.Substring(0, 7))"
+            } else {
+                $selected = Get-SelectedBranch $item
+                $remoteRef = "refs/remotes/origin/$selected"
+                $null = & git -C $path rev-parse --verify --quiet $remoteRef 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/$selected...HEAD") | Select-Object -Last 1).Trim() -split '\s+'
+                    Write-Host "$($item.name): branch=$current, target=$selected, commit=$head, ahead=$($counts[1]), behind=$($counts[0]), dirty=$dirty"
+                } else {
+                    Write-Host "$($item.name): branch=$current, target=$selected, commit=$head, dirty=$dirty (origin ref not fetched)"
+                }
+            }
         } else { Write-Host "$($item.name): not cloned" }
     }
     $gateway = Get-GatewayStatus
@@ -498,6 +597,56 @@ function Show-Status {
     else { Write-Host "Godot: missing at $GodotPath (override with -GodotPath)" }
 }
 
+function Show-Branches {
+    foreach ($item in $script:Lock.repositories) {
+        $path = Join-Path $script:ProjectRoot $item.name
+        if (-not (Test-Path -LiteralPath (Join-Path $path '.git'))) {
+            Write-Host "$($item.name): not cloned"
+            continue
+        }
+        Write-Host "=== $($item.name)"
+        $null = Invoke-Git $path @('fetch', 'origin')
+        $worktrees = @()
+        $currentWorktree = $null
+        foreach ($line in (Invoke-Git $path @('worktree', 'list', '--porcelain'))) {
+            if ($line.StartsWith('worktree ')) {
+                if ($currentWorktree) { $worktrees += $currentWorktree }
+                $currentWorktree = [ordered]@{ path = $line.Substring(9); branch = '' }
+            } elseif ($line.StartsWith('branch ') -and $currentWorktree) {
+                $currentWorktree.branch = $line.Substring(7).Replace('refs/heads/', '')
+            }
+        }
+        if ($currentWorktree) { $worktrees += $currentWorktree }
+        foreach ($tree in $worktrees) {
+            $head = (Invoke-Git $tree.path @('rev-parse', '--short', 'HEAD') | Select-Object -Last 1).Trim()
+            $dirtyCount = @(Invoke-Git $tree.path @('status', '--porcelain', '--untracked-files=normal')).Count
+            $branchLabel = if ($tree.branch) { $tree.branch } else { 'detached' }
+            Write-Host "  worktree $($tree.path): $branchLabel @ $head; dirty=$dirtyCount"
+        }
+
+        $null = & git -C $path rev-parse --verify --quiet refs/remotes/origin/main 2>$null
+        if ($LASTEXITCODE -ne 0) { Write-Host '  origin/main is unavailable; ahead/behind scan skipped.'; continue }
+        $localBranches = @(Invoke-Git $path @('for-each-ref', '--format=%(refname:short)', 'refs/heads'))
+        foreach ($branch in $localBranches) {
+            $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/main...$branch") | Select-Object -Last 1).Trim() -split '\s+'
+            if ([int]$counts[1] -gt 0) {
+                $subject = (Invoke-Git $path @('log', '-1', '--format=%h %s', $branch) | Select-Object -Last 1).Trim()
+                Write-Host "  local candidate ${branch}: ahead=$($counts[1]), behind=$($counts[0]); $subject"
+            }
+        }
+        $remoteBranches = @(Invoke-Git $path @('for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'))
+        foreach ($branch in $remoteBranches) {
+            if ($branch -eq 'origin/main' -or $branch -eq 'origin/HEAD') { continue }
+            $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/main...$branch") | Select-Object -Last 1).Trim() -split '\s+'
+            if ([int]$counts[1] -gt 0) {
+                $subject = (Invoke-Git $path @('log', '-1', '--format=%h %s', $branch) | Select-Object -Last 1).Trim()
+                Write-Host "  remote candidate ${branch}: ahead=$($counts[1]), behind=$($counts[0]); $subject"
+            }
+        }
+    }
+    Write-Host 'Dirty worktrees were only inspected. Startup did not alter or delete them.'
+}
+
 switch ($Action) {
     'setup' { Setup-Project }
     'start' { Setup-Project; Start-FullStack }
@@ -506,5 +655,6 @@ switch ($Action) {
     'start-gui' { Setup-Project; Start-GUI }
     'install-dashboard' { Setup-Project; Install-Dashboard }
     'status' { Show-Status }
+    'branches' { Show-Branches }
     'stop' { Stop-Project }
 }
