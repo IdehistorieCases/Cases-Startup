@@ -47,7 +47,7 @@ Normal startup fetches `origin/main` for all three source repositories and fast-
 .\cases.ps1 start -Locked
 ~~~
 
-Use `-Branch` (or its `-Ref` alias) when the same branch exists in all three repositories. Use `-AIRef`, `-BackendRef`, and `-GUIRef` for projects whose feature branches have different names. `branches` refreshes origin refs and reports worktrees, dirty edits, and commits ahead of main without changing any worktree. `-Locked` selects the exact revisions recorded in `repos.lock.json` for a reproducible run.
+Use `-Branch` (or its `-Ref` alias) when the same branch exists in all three repositories. Use `-AIRef`, `-BackendRef`, and `-GUIRef` for projects whose feature branches have different names. `branches` refreshes origin refs and reports worktrees, dirty edits, and unique commits ahead of main without changing any worktree. `-Locked` selects the exact revisions recorded in `repos.lock.json`; use a fresh `-ProjectRoot` if the normal checkout has moved past those pins, since the launcher never rewinds a checkout.
 
 ## Start each service separately
 
