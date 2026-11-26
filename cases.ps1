@@ -35,9 +35,16 @@ $script:BackendUrl = "http://127.0.0.1:$BackendPort"
 
 function Invoke-Git {
     param([string]$Repository, [string[]]$GitArguments)
-    $output = & git -C $Repository @GitArguments 2>&1
-    if ($LASTEXITCODE -ne 0) { throw "Git failed in $Repository. Arguments: $($GitArguments -join ' ')" }
-    return $output
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $output = & git -C $Repository @GitArguments 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) { throw "Git failed in $Repository. Arguments: $($GitArguments -join ' ')" }
+    return @($output | ForEach-Object { $_.ToString() })
 }
 
 function Ensure-PinnedRepository {
