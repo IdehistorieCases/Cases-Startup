@@ -16,8 +16,8 @@
     {
       "name": "Cases-GUI",
       "url": "https://github.com/IdehistorieCases/Cases-GUI.git",
-      "ref": "refs/heads/main",
-      "commit": "1f30a096c4d935b92d4074a6303d34155bb87879"
+      "ref": "refs/heads/codex/web-preview",
+      "commit": "baf3a3a380cd587f0cc31c07360afd722760d2fc"
     }
   ]
 }
