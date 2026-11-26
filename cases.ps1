@@ -619,9 +619,10 @@ function Show-Branches {
         if ($currentWorktree) { $worktrees += $currentWorktree }
         foreach ($tree in $worktrees) {
             $head = (Invoke-Git $tree.path @('rev-parse', '--short', 'HEAD') | Select-Object -Last 1).Trim()
-            $dirtyCount = @(Invoke-Git $tree.path @('status', '--porcelain', '--untracked-files=normal')).Count
+            $dirtyFiles = @(Invoke-Git $tree.path @('status', '--porcelain', '--untracked-files=normal'))
             $branchLabel = if ($tree.branch) { $tree.branch } else { 'detached' }
-            Write-Host "  worktree $($tree.path): $branchLabel @ $head; dirty=$dirtyCount"
+            Write-Host "  worktree $($tree.path): $branchLabel @ $head; dirty=$($dirtyFiles.Count)"
+            foreach ($dirtyFile in $dirtyFiles) { Write-Host "    $dirtyFile" }
         }
 
         $null = & git -C $path rev-parse --verify --quiet refs/remotes/origin/main 2>$null
@@ -629,20 +630,20 @@ function Show-Branches {
         $localBranches = @(Invoke-Git $path @('for-each-ref', '--format=%(refname:short)', 'refs/heads'))
         foreach ($branch in $localBranches) {
             $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/main...$branch") | Select-Object -Last 1).Trim() -split '\s+'
-            $uniqueChanges = @(Invoke-Git $path @('cherry', 'origin/main', $branch) | Where-Object { $_.StartsWith('+') })
+            $uniqueChanges = @(Invoke-Git $path @('cherry', '-v', 'origin/main', $branch) | Where-Object { $_.StartsWith('+') })
             if ($uniqueChanges.Count -gt 0) {
-                $subject = (Invoke-Git $path @('log', '-1', '--format=%h %s', $branch) | Select-Object -Last 1).Trim()
-                Write-Host "  local candidate ${branch}: unique=$($uniqueChanges.Count), behind=$($counts[0]); $subject"
+                Write-Host "  local candidate ${branch}: unique=$($uniqueChanges.Count), behind=$($counts[0])"
+                foreach ($change in $uniqueChanges) { Write-Host "    $change" }
             }
         }
         $remoteBranches = @(Invoke-Git $path @('for-each-ref', '--format=%(refname:short)', 'refs/remotes/origin'))
         foreach ($branch in $remoteBranches) {
             if ($branch -eq 'origin/main' -or $branch -eq 'origin/HEAD') { continue }
             $counts = (Invoke-Git $path @('rev-list', '--left-right', '--count', "origin/main...$branch") | Select-Object -Last 1).Trim() -split '\s+'
-            $uniqueChanges = @(Invoke-Git $path @('cherry', 'origin/main', $branch) | Where-Object { $_.StartsWith('+') })
+            $uniqueChanges = @(Invoke-Git $path @('cherry', '-v', 'origin/main', $branch) | Where-Object { $_.StartsWith('+') })
             if ($uniqueChanges.Count -gt 0) {
-                $subject = (Invoke-Git $path @('log', '-1', '--format=%h %s', $branch) | Select-Object -Last 1).Trim()
-                Write-Host "  remote candidate ${branch}: unique=$($uniqueChanges.Count), behind=$($counts[0]); $subject"
+                Write-Host "  remote candidate ${branch}: unique=$($uniqueChanges.Count), behind=$($counts[0])"
+                foreach ($change in $uniqueChanges) { Write-Host "    $change" }
             }
         }
     }
