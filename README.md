@@ -66,6 +66,14 @@ The launcher verifies every source checkout's origin, locked commit, and clean w
 
 `stop` stops only the GUI process tracked by this launcher, its backend and inference-gateway Compose projects, and its bridge process. It does not stop the existing `ddu-backend` or `inference-gateway` projects. Compose down runs without `-v`, so the startup stack's PostgreSQL and gateway state volumes remain intact.
 
+## Private browser preview
+
+On Marcus-Computer, run `powershell -ExecutionPolicy Bypass -File .\web-preview.ps1 install` once to build the Godot Web export, start the pinned model/backend services, add a local password gate, and expose only that gate through Tailscale Funnel over HTTPS. The installer registers the same start sequence at the current Windows user's next logon. The PC must remain on, connected to the internet, and signed in.
+
+The preview server listens only on `127.0.0.1:8767`. It serves the Godot export and proxies only `/healthz`, `/readyz`, and `/api/v1/*` to the backend on loopback. PostgreSQL, the inference gateway, and the Codex CLI bridge remain private. The password is stored in the ignored local `.env.web-preview` file; do not commit or share it. Requests through this single-user preview use the Codex CLI account configured on Marcus-Computer, so Marcus must be the person actively using the game. A separate reviewer who plays the game must use their own eligible ChatGPT plan through an approved integration.
+
+Use `powershell -ExecutionPolicy Bypass -File .\web-preview.ps1 status` to inspect the route, and `-Action stop` to remove the Funnel route and stop only the web preview. Backend and inference containers remain running.
+
 ## Service boundaries
 
 - Cases-AI is the canonical inference repository. The bridge binds only to 127.0.0.1. The inference gateway has no host-published inference port; its backend-only alias is `cases-startup-gateway:8080`.
