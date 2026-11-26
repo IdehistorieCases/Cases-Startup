@@ -99,6 +99,7 @@ function Start-Preview {
 }
 
 function Install-LogonTask {
+    $null = Read-PreviewPassword
     $identity = "$env:USERDOMAIN\$env:USERNAME"
     $powershell = (Get-Command powershell.exe -ErrorAction Stop).Source
     $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -Action start'

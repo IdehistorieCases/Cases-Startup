@@ -82,7 +82,7 @@ The launcher verifies each checkout's origin and requires a clean working tree b
 
 ## Private browser preview
 
-On Marcus-Computer, run `powershell -ExecutionPolicy Bypass -File .\web-preview.ps1 install` once to build the Godot Web export, start the selected model/backend services, add a local password gate, and expose only that gate through Tailscale Funnel over HTTPS. The installer registers the same start sequence at the current Windows user's next logon. The PC must remain on, connected to the internet, and signed in.
+Before the first preview install, create the ignored file `D:\projects\Cases-Startup\.env.web-preview` with `CASES_PREVIEW_PASSWORD=<your review password>`. Keep that password out of Git. Then run `powershell -ExecutionPolicy Bypass -File .\web-preview.ps1 install` on Marcus-Computer to build the Godot Web export, start the selected model/backend services, and expose the password gate through Tailscale Funnel over HTTPS. The installer registers the same start sequence at the current Windows user's next logon. It checks the password file before registering the task. The PC must remain on, connected to the internet, and signed in.
 
 The preview server listens only on `127.0.0.1:8767`. It serves the Godot export and proxies only `/healthz`, `/readyz`, and `/api/v1/*` to the backend on loopback. PostgreSQL, the inference gateway, and the Codex CLI bridge remain private. The password is stored in the ignored local `.env.web-preview` file; do not commit or share it. Requests through this single-user preview use the Codex CLI account configured on Marcus-Computer, so Marcus must be the person actively using the game. A separate reviewer who plays the game must use their own eligible ChatGPT plan through an approved integration.
 
